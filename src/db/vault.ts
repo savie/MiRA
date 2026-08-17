@@ -1,5 +1,4 @@
 import { openDatabaseSync } from 'expo-sqlite';
-import { v4 as uuidv4 } from 'uuid';
 
 const db = openDatabaseSync('mira_vault.db');
 
@@ -38,7 +37,10 @@ export function initDB() {
   // Generate anchor_id once on first launch
   const identity = db.getFirstSync('SELECT anchor_id FROM mira_identity LIMIT 1');
   if (!identity) {
-    const anchorId = uuidv4();
+    const anchorId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+  const r = Math.random() * 16 | 0;
+  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+});
     const now = new Date().toISOString();
     db.runSync(
       'INSERT INTO mira_identity (anchor_id, created_at) VALUES (?, ?)',
