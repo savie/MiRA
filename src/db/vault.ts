@@ -199,6 +199,11 @@ export function addModel(providerId: number, modelId: string, modelName: string,
   addAuditLog('MODEL_ADDED', `Provider: ${providerId} | Model: ${modelId} | Type: ${inputType}`);
 }
 
+export function updateProviderUrl(id: number, url: string) {
+  db.runSync('UPDATE providers SET base_url = ? WHERE id = ?', [url, id]);
+  addAuditLog('PROVIDER_URL_CHANGED', `ID: ${id} → ${url}`);
+}
+
 export function toggleModel(id: number, enabled: boolean) {
   db.runSync('UPDATE models SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
 }

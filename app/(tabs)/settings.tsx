@@ -6,7 +6,7 @@ import {
 import { useFocusEffect } from 'expo-router';
 import {
   getSetting, setSetting, getAnchorId, exportVault, importVault,
-  getProviders, updateProviderKey, toggleProvider,
+  getProviders, updateProviderKey, updateProviderUrl, toggleProvider,
   getModelsForProvider, addModel, deleteModel, toggleModel,
   addAuditLog, Provider, AIModel,
 } from '@/db/vault';
@@ -22,6 +22,7 @@ export default function SettingsScreen() {
   const [providerModels, setProviderModels] = useState<Record<number, AIModel[]>>({});
   const [newModel, setNewModel] = useState<Record<number, { id: string; name: string; type: string }>>({});
   const [apiKeys, setApiKeys] = useState<Record<number, string>>({});
+  const [providerUrls, setProviderUrls] = useState<Record<number, string>>({});
 
   const refresh = useCallback(() => {
     setSystemPrompt(getSetting('system_prompt') ?? '');
@@ -29,8 +30,10 @@ export default function SettingsScreen() {
     const ps = getProviders();
     setProviders(ps);
     const keys: Record<number, string> = {};
-    ps.forEach(p => { keys[p.id] = p.api_key; });
+    const urls: Record<number, string> = {};
+    ps.forEach(p => { keys[p.id] = p.api_key; urls[p.id] = p.base_url; });
     setApiKeys(keys);
+    setProviderUrls(urls);
   }, []);
 
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
@@ -51,14 +54,15 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSaveUrl = (provider: Provider) => {
+    updateProviderUrl(provider.id, providerUrls[provider.id] ?? provider.base_url);
+    Alert.alert('✓', `URL ${provider.name} disimpan.`);
+  };
+
   const handleSaveKey = (provider: Provider) => {
     updateProviderKey(provider.id, apiKeys[provider.id] ?? '');
-    setProviders(prev => prev.map(p => 
-      p.id === provider.id 
-        ? { ...p, api_key: apiKeys[provider.id] ?? '', is_enabled: 1 } 
-        : p
-    ));
     Alert.alert('✓', `API key ${provider.name} disimpan.`);
+    refresh();
   };
 
   const handleToggleProvider = (id: number, current: number) => {
@@ -154,7 +158,20 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                   </View>
 
-                  <Text style={styles.urlText}>{provider.base_url}</Text>
+                  <Text style={styles.label}>Base URL</Text>
+                  <View style={styles.keyRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 1, fontSize: 11 }]}
+                      value={providerUrls[provider.id] ?? provider.base_url}
+                      onChangeText={text => setProviderUrls(prev => ({ ...prev, [provider.id]: text }))}
+                      placeholder="https://..."
+                      placeholderTextColor="#444"
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity style={styles.saveKeyBtn} onPress={() => handleSaveUrl(provider)}>
+                      <Text style={styles.saveKeyText}>Simpan</Text>
+                    </TouchableOpacity>
+                  </View>
 
                   {/* Models */}
                   <Text style={[styles.label, { marginTop: 12 }]}>Models</Text>
