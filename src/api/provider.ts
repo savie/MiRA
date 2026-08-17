@@ -1,80 +1,115 @@
-import { getSetting, addAuditLog } from '../db/vault';
+import { getMemories, addAuditLog, getSetting, getModelsForType, addRoutingLog } from '../db/vault';
+import { classifyInput, InputType } from './classifier';
 import { Message } from '../context/assembler';
 
-export async function callAI(messages: Message[]): Promise<string> {
-  const apiKey = getSetting('api_key');
-  const apiUrl = getSetting('api_url') ?? 'https://api.groq.com/openai/v1/chat/completions';
-  const model = getSetting('model') ?? 'llama3-8b-8192';
+// ─── Main Router ─────────────────────────────────────────────
+export async function callAI(messages: Message[], userInput: string): Promise<string> {
+  const inputType = classifyInput(userInput);
+  addAuditLog('CLASSIFIER', `Input type: ${inputType} | "${userInput.slice(0, 50)}"`);
 
-  if (!apiKey) {
-    return 'API key belum diset. Buka Settings dan masukkan API key kamu.';
-  }
+  const candidates = getModelsForType(inputType);
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: 1024,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      addAuditLog('API_ERROR', `Status: ${response.status} | ${err.slice(0, 100)}`);
-      return `Error dari AI provider: ${response.status}. Cek API key dan URL di Settings.`;
+  if (candidates.length === 0) {
+    // Fallback: coba semua model dari semua provider
+    const allCandidates = getModelsForType('all');
+    if (allCandidates.length === 0) {
+      return 'Belum ada model yang dikonfigurasi. Buka Settings → Providers dan tambahkan model.';
     }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content ?? 'Tidak ada respons dari AI.';
-  } catch (error) {
-    addAuditLog('API_ERROR', `Network error: ${String(error).slice(0, 100)}`);
-    return 'Gagal terhubung ke AI provider. Cek koneksi internet kamu.';
+    return tryProviders(allCandidates, messages, inputType);
   }
+
+  return tryProviders(candidates, messages, inputType);
 }
 
+async function tryProviders(candidates: any[], messages: Message[], inputType: InputType): Promise<string> {
+  for (const candidate of candidates) {
+    if (!candidate.api_key) {
+      addRoutingLog(inputType, candidate.provider_name, candidate.model_id, false, 'No API key');
+      continue;
+    }
+
+    try {
+      const result = await callProvider(
+        candidate.base_url,
+        candidate.api_key,
+        candidate.model_id,
+        messages
+      );
+
+      addRoutingLog(inputType, candidate.provider_name, candidate.model_id, true);
+      addAuditLog('ROUTE_SUCCESS', `${candidate.provider_name} → ${candidate.model_id}`);
+      return result;
+
+    } catch (error) {
+      const errMsg = String(error).slice(0, 100);
+      addRoutingLog(inputType, candidate.provider_name, candidate.model_id, false, errMsg);
+      addAuditLog('ROUTE_FAIL', `${candidate.provider_name} → ${candidate.model_id} | ${errMsg}`);
+      // Lanjut ke provider berikutnya
+      continue;
+    }
+  }
+
+  return 'Semua provider gagal. Cek API key dan koneksi internet di Settings → Providers.';
+}
+
+async function callProvider(baseUrl: string, apiKey: string, model: string, messages: Message[]): Promise<string> {
+  const response = await fetch(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 1024,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`${response.status}: ${err.slice(0, 100)}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Empty response from provider');
+  return content;
+}
+
+// ─── Memory Evaluator ────────────────────────────────────────
 export async function evaluateMemoryWorthiness(
   userMessage: string,
   aiResponse: string
 ): Promise<{ shouldSave: boolean; content: string; tags: string; importance: number }> {
-  const apiKey = getSetting('api_key');
-  const apiUrl = getSetting('api_url') ?? 'https://api.groq.com/openai/v1/chat/completions';
-  const model = getSetting('model') ?? 'llama3-8b-8192';
+  const candidates = getModelsForType('simple');
+  if (candidates.length === 0) return { shouldSave: false, content: '', tags: '', importance: 0 };
 
-  if (!apiKey) return { shouldSave: false, content: '', tags: '', importance: 0 };
+  const candidate = candidates[0];
+  if (!candidate.api_key) return { shouldSave: false, content: '', tags: '', importance: 0 };
 
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetch(candidate.base_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${candidate.api_key}`,
       },
       body: JSON.stringify({
-        model,
+        model: candidate.model_id,
         messages: [{
           role: 'user',
-          content: `Analisis percakapan ini dan tentukan apakah ada info penting yang perlu diingat tentang pemilik MiRA.
+          content: `Analisis percakapan ini. Apakah ada info penting tentang pemilik yang perlu diingat?
 
 User: ${userMessage}
-MiRA: ${aiResponse}
+AI: ${aiResponse}
 
-Jawab HANYA dalam format JSON ini (tanpa markdown):
-{
-  "shouldSave": true/false,
-  "content": "ringkasan singkat info penting (kosong jika shouldSave=false)",
-  "tags": "tag1,tag2 (kosong jika shouldSave=false)",
-  "importance": 0.0-1.0
-}
+Jawab HANYA JSON (tanpa markdown):
+{"shouldSave":true/false,"content":"ringkasan singkat","tags":"tag1,tag2","importance":0.0-1.0}
 
-Simpan jika ada: fakta personal, preferensi, keputusan penting, atau info yang akan berguna di percakapan masa depan.
-Jangan simpan jika: pertanyaan umum, smalltalk, atau info yang tidak personal.`
+Simpan: fakta personal, preferensi, keputusan penting.
+Jangan simpan: smalltalk, pertanyaan umum.`
         }],
         max_tokens: 200,
         temperature: 0.1,
@@ -83,7 +118,8 @@ Jangan simpan jika: pertanyaan umum, smalltalk, atau info yang tidak personal.`
 
     const data = await response.json();
     const text = data.choices?.[0]?.message?.content ?? '{}';
-    return JSON.parse(text);
+    const clean = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
   } catch {
     return { shouldSave: false, content: '', tags: '', importance: 0 };
   }
