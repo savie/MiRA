@@ -1,44 +1,12 @@
-name: MiRA EAS Build
-
-on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Build APK
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Setup EAS
+- name: Setup EAS
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Initialize EAS project
+        run: npx eas init --id ${{ secrets.EAS_PROJECT_ID }} --non-interactive
+        continue-on-error: true
+
       - name: Build APK (preview)
         run: eas build --platform android --profile preview --non-interactive
-
-      - name: Download APK artifact
-        run: |
-          BUILD_URL=$(eas build:list --platform android --limit 1 --json --non-interactive | jq -r '.[0].artifacts.buildUrl')
-          echo "APK URL: $BUILD_URL"
-          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
-
-      - name: Post APK URL to summary
-        run: |
-          echo "## MiRA APK Build" >> $GITHUB_STEP_SUMMARY
-          echo "Download APK: $BUILD_URL" >> $GITHUB_STEP_SUMMARY
