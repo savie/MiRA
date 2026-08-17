@@ -1,4 +1,4 @@
-name: MiRA EAS Build
+name: MiRA Android Build
 
 on:
   push:
@@ -17,27 +17,26 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
 
       - name: Install dependencies
         run: npm install
 
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Debug info
-        run: |
-          node --version
-          npx expo --version
-          cat app.json
-          ls -la
-
-      - name: Expo config check
-        run: npx expo config 2>&1 || true
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
 
       - name: Build APK
-        run: eas build --platform android --profile preview --non-interactive
+        run: cd android && ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mira-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
