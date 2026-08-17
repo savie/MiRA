@@ -1,7 +1,7 @@
-import * as SQLite from 'expo-sqlite';
+import { openDatabaseSync } from 'expo-sqlite';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = SQLite.openDatabaseSync('mira_vault.db');
+const db = openDatabaseSync('mira_vault.db');
 
 export function initDB() {
   db.execSync(`
