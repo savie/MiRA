@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getSetting, setSetting, getAnchorId, exportVault, importVault, addAuditLog } from '@/db/vault';
-import * as Clipboard from 'expo-clipboard';
+import { Clipboard } from 'react-native';
 
 export default function SettingsScreen() {
   const [apiKey, setApiKey] = useState('');
@@ -32,7 +32,7 @@ export default function SettingsScreen() {
 
   const handleExport = async () => {
     const json = exportVault();
-    await Clipboard.setStringAsync(json);
+    Clipboard.setString(json);
     Alert.alert('Vault Diekspor', 'Data vault disalin ke clipboard. Simpan ke tempat yang aman.');
     addAuditLog('VAULT_EXPORTED', 'Owner triggered export');
   };
