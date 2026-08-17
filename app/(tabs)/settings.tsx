@@ -53,8 +53,12 @@ export default function SettingsScreen() {
 
   const handleSaveKey = (provider: Provider) => {
     updateProviderKey(provider.id, apiKeys[provider.id] ?? '');
+    setProviders(prev => prev.map(p => 
+      p.id === provider.id 
+        ? { ...p, api_key: apiKeys[provider.id] ?? '', is_enabled: 1 } 
+        : p
+    ));
     Alert.alert('✓', `API key ${provider.name} disimpan.`);
-    refresh();
   };
 
   const handleToggleProvider = (id: number, current: number) => {
