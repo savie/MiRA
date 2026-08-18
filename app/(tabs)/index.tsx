@@ -5,7 +5,7 @@ import {
   StyleSheet, ActivityIndicator, SafeAreaView,
   Image, Alert, Clipboard,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { callAI, evaluateMemoryWorthiness } from '@/api/provider';
 import { assembleContext, Message } from '@/context/assembler';
 import { saveMemory, addAuditLog } from '@/db/vault';
@@ -26,23 +26,17 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
 
   const pickImage = useCallback(async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission diperlukan', 'MiRA butuh akses galeri untuk kirim gambar.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.7,
-      base64: true,
-    });
-    if (!result.canceled && result.assets[0]) {
+    launchImageLibrary(
+  { mediaType: 'photo', quality: 0.7, includeBase64: true },
+  (response) => {
+    if (!response.didCancel && response.assets?.[0]) {
       setSelectedImage({
-        uri: result.assets[0].uri,
-        base64: result.assets[0].base64 ?? '',
-      });
-    }
+        uri: response.assets[0].uri ?? '',
+        base64: response.assets[0].base64 ?? '',
+       });
+      }
+     }
+    );
   }, []);
 
   const clearImage = useCallback(() => setSelectedImage(null), []);
