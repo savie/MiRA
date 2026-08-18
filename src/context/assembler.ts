@@ -11,7 +11,6 @@ export function assembleContext(userInput: string, recentMessages: Message[]): M
 Kamu bukan asisten generik. Kamu mengenal pemilikmu, mengingat apa yang mereka ajarkan, dan berkembang bersama mereka.
 Jawab dengan jujur, langsung, dan personal. Jangan bertele-tele.`;
 
-  // Ambil semua memori — bukan search by keyword
   const allMemories = getMemories().slice(0, 15);
 
   let memoryContext = '';
@@ -22,11 +21,20 @@ Jawab dengan jujur, langsung, dan personal. Jangan bertele-tele.`;
 
   const fullSystem = systemPrompt + memoryContext;
 
-  // Hanya kirim 10 pesan terakhir ke AI
-  const trimmedHistory = recentMessages.slice(-10);
+  // Pastiin history selalu diakhiri assistant, bukan user
+  // agar pesan user baru yang jadi pesan terakhir
+  const trimmed = recentMessages.slice(-10);
+
+  // Buang pesan terakhir kalau role-nya user (akan diganti userInput)
+  const cleanHistory = trimmed.filter((_, i) => {
+    if (i === trimmed.length - 1 && trimmed[i].role === 'user') return false;
+    return true;
+  });
 
   return [
-    { role: 'user', content: `[SYSTEM]\n${fullSystem}\n\n[USER]\n${userInput}` },
-    ...trimmedHistory,
+    { role: 'user', content: `[SYSTEM]\n${fullSystem}` },
+    { role: 'assistant', content: 'Siap.' },
+    ...cleanHistory,
+    { role: 'user', content: userInput },
   ];
 }
