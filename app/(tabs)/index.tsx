@@ -3,7 +3,9 @@ import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, KeyboardAvoidingView, Platform,
   StyleSheet, ActivityIndicator, SafeAreaView,
+  Image, Alert, Clipboard,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { callAI, evaluateMemoryWorthiness } from '@/api/provider';
 import { assembleContext, Message } from '@/context/assembler';
 import { saveMemory, addAuditLog } from '@/db/vault';
@@ -12,25 +14,53 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  inputType?: string;
+  imageUri?: string;
+  imageBase64?: string;
 }
 
 export default function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{ uri: string; base64: string } | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  const send = useCallback(async () => {
-    if (!input.trim() || loading) return;
+  const pickImage = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission diperlukan', 'MiRA butuh akses galeri untuk kirim gambar.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.7,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setSelectedImage({
+        uri: result.assets[0].uri,
+        base64: result.assets[0].base64 ?? '',
+      });
+    }
+  }, []);
 
-    const userText = input.trim();
+  const clearImage = useCallback(() => setSelectedImage(null), []);
+
+  const send = useCallback(async () => {
+    if ((!input.trim() && !selectedImage) || loading) return;
+
+    const userText = input.trim() || '(gambar dikirim)';
+    const imgData = selectedImage;
     setInput('');
+    setSelectedImage(null);
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
       content: userText,
+      imageUri: imgData?.uri,
+      imageBase64: imgData?.base64,
     };
 
     setMessages(prev => [...prev, userMsg]);
@@ -41,7 +71,7 @@ export default function ChatScreen() {
         role: m.role,
         content: m.content,
       }));
-      const context = assembleContext(userText, history);
+      const context = assembleContext(userText, history, imgData?.base64);
       const aiText = await callAI(context, userText);
 
       const aiMsg: ChatMessage = {
@@ -51,15 +81,14 @@ export default function ChatScreen() {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-      addAuditLog('CHAT_EXCHANGE', `User: ${userText.slice(0, 50)}...`);
+      addAuditLog('CHAT_EXCHANGE', `User: ${userText.slice(0, 50)}`);
 
       evaluateMemoryWorthiness(userText, aiText).then(result => {
         if (result.shouldSave && result.content) {
           saveMemory(result.content, result.tags, result.importance);
         }
       });
-
-    } catch (error) {
+    } catch {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -69,7 +98,12 @@ export default function ChatScreen() {
       setLoading(false);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
-  }, [input, loading, messages]);
+  }, [input, loading, messages, selectedImage]);
+
+  const handleLongPress = (content: string) => {
+    Clipboard.setString(content);
+    Alert.alert('✓ Disalin', 'Teks berhasil disalin.');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -91,11 +125,23 @@ export default function ChatScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.aiBubble]}>
-            <Text style={[styles.bubbleText, item.role === 'user' ? styles.userText : styles.aiText]}>
-              {item.content}
-            </Text>
-          </View>
+          <TouchableOpacity
+            onLongPress={() => handleLongPress(item.content)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.aiBubble]}>
+              {item.imageUri && (
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={styles.messageImage}
+                  resizeMode="cover"
+                />
+              )}
+              <Text style={[styles.bubbleText, item.role === 'user' ? styles.userText : styles.aiText]}>
+                {item.content}
+              </Text>
+            </View>
+          </TouchableOpacity>
         )}
       />
 
@@ -106,8 +152,23 @@ export default function ChatScreen() {
         </View>
       )}
 
+      {/* Image preview */}
+      {selectedImage && (
+        <View style={styles.imagePreviewContainer}>
+          <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
+          <TouchableOpacity style={styles.removeImageBtn} onPress={clearImage}>
+            <Text style={styles.removeImageText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.inputRow}>
+          {/* Attach image button */}
+          <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
+            <Text style={styles.attachIcon}>📎</Text>
+          </TouchableOpacity>
+
           <TextInput
             style={styles.input}
             value={input}
@@ -116,13 +177,12 @@ export default function ChatScreen() {
             placeholderTextColor="#555"
             multiline
             maxLength={2000}
-            onSubmitEditing={send}
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, ((!input.trim() && !selectedImage) || loading) && styles.sendBtnDisabled]}
             onPress={send}
-            disabled={!input.trim() || loading}
+            disabled={(!input.trim() && !selectedImage) || loading}
           >
             <Text style={styles.sendIcon}>↑</Text>
           </TouchableOpacity>
@@ -147,9 +207,16 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, lineHeight: 22 },
   userText: { color: '#e0d9ff' },
   aiText: { color: '#ccc' },
+  messageImage: { width: 200, height: 150, borderRadius: 10, marginBottom: 8 },
   typingContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, gap: 8 },
   typingText: { color: '#555', fontSize: 13 },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#1a1a1a', gap: 8 },
+  imagePreviewContainer: { marginHorizontal: 12, marginBottom: 4, position: 'relative', alignSelf: 'flex-start' },
+  imagePreview: { width: 80, height: 80, borderRadius: 8 },
+  removeImageBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: '#ef4444', borderRadius: 10, width: 20, height: 20, justifyContent: 'center', alignItems: 'center' },
+  removeImageText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#1a1a1a', gap: 6 },
+  attachBtn: { width: 38, height: 38, justifyContent: 'center', alignItems: 'center' },
+  attachIcon: { fontSize: 20 },
   input: { flex: 1, backgroundColor: '#111', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 15, maxHeight: 120, borderWidth: 1, borderColor: '#222' },
   sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#a78bfa', justifyContent: 'center', alignItems: 'center' },
   sendBtnDisabled: { backgroundColor: '#2a2a2a' },

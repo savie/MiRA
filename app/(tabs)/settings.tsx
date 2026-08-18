@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   Alert, StyleSheet, SafeAreaView, Switch,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import {
   getSetting, setSetting, getAnchorId, exportVault, importVault,
   getProviders, updateProviderKey, updateProviderUrl, toggleProvider,
@@ -242,6 +242,14 @@ export default function SettingsScreen() {
           />
           <TouchableOpacity style={styles.saveBtn} onPress={handleSavePrompt}>
             <Text style={styles.saveBtnText}>Simpan System Prompt</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Local Providers */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>LOCAL PROVIDERS</Text>
+          <TouchableOpacity style={styles.vaultBtn} onPress={() => router.push('/local-provider')}>
+            <Text style={styles.vaultBtnText}>🏠 Kelola Local Provider (llama.cpp / Ollama)</Text>
           </TouchableOpacity>
         </View>
 

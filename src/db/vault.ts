@@ -328,3 +328,35 @@ export interface AIModel {
   base_url?: string;
   api_key?: string;
 }
+
+// ─── Local Providers ─────────────────────────────────────────
+export function getLocalProviders(): LocalProvider[] {
+  return db.getAllSync<LocalProvider>(
+    "SELECT * FROM providers WHERE name LIKE 'Local:%' AND is_enabled = 1 ORDER BY priority ASC"
+  );
+}
+
+export function addLocalProvider(name: string, url: string) {
+  const now = new Date().toISOString();
+  const fullName = `Local: ${name}`;
+  const existing = db.getFirstSync('SELECT id FROM providers WHERE name = ?', [fullName]);
+  if (existing) {
+    db.runSync('UPDATE providers SET base_url = ?, is_enabled = 1 WHERE name = ?', [url, fullName]);
+  } else {
+    db.runSync(
+      'INSERT INTO providers (name, base_url, api_key, is_enabled, priority, created_at) VALUES (?, ?, ?, 1, 0, ?)',
+      [fullName, url, 'local', now]
+    );
+  }
+  addAuditLog('LOCAL_PROVIDER_ADDED', `${fullName} → ${url}`);
+}
+
+export interface LocalProvider {
+  id: number;
+  name: string;
+  base_url: string;
+  api_key: string;
+  is_enabled: number;
+  priority: number;
+  created_at: string;
+}
